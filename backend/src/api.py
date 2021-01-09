@@ -6,6 +6,7 @@ from flask_cors import CORS
 
 from .database.models import db_drop_and_create_all, setup_db, Drink
 from .auth.auth import AuthError, requires_auth
+from .errors import ERROR_DETAILS
 
 app = Flask(__name__)
 setup_db(app)
@@ -16,7 +17,7 @@ CORS(app)
 !! NOTE THIS WILL DROP ALL RECORDS AND START YOUR DB FROM SCRATCH
 !! NOTE THIS MUST BE UNCOMMENTED ON FIRST RUN
 '''
-db_drop_and_create_all()
+# db_drop_and_create_all()
 
 ## ROUTES
 '''
@@ -27,6 +28,18 @@ db_drop_and_create_all()
     returns status code 200 and json {"success": True, "drinks": drinks} where drinks is the list of drinks
         or appropriate status code indicating reason for failure
 '''
+@app.route('/drinks')
+def get_drinks():
+    drinks = Drink.query.order_by('id').all()
+
+    if len(drinks) == 0:
+        raise AuthError(ERROR_DETAILS['400'], 400)
+
+    drink_info = [drink.short() for drink in drinks]
+    return jsonify({
+        "success": True, 
+        "drinks": drink_info
+        }), 200
 
 
 '''
@@ -37,6 +50,14 @@ db_drop_and_create_all()
     returns status code 200 and json {"success": True, "drinks": drinks} where drinks is the list of drinks
         or appropriate status code indicating reason for failure
 '''
+@app.route('/drinks-detail')
+def get_drinks_details():
+    drinks = Drink.query.order_by('id').all()
+    drink_info = [drink.long() for drink in drinks]
+    return jsonify({
+        "success": True, 
+        "drinks": drink_info
+        }), 200
 
 
 '''
@@ -48,6 +69,19 @@ db_drop_and_create_all()
     returns status code 200 and json {"success": True, "drinks": drink} where drink an array containing only the newly created drink
         or appropriate status code indicating reason for failure
 '''
+@app.route('/drinks', methods=['POST'])
+def create_drink():
+    body = request.get_json()
+    new_drink = Drink(title=body['title'], recipe=body['recipe'])
+    new_drink.insert()
+
+    drinks = Drink.query.order_by('id').all()
+    drink_info = [drink.long() for drink in drinks]
+
+    return jsonify({
+        "success": True, 
+        "drinks": drink_info
+        }), 200
 
 
 '''
@@ -61,6 +95,24 @@ db_drop_and_create_all()
     returns status code 200 and json {"success": True, "drinks": drink} where drink an array containing only the updated drink
         or appropriate status code indicating reason for failure
 '''
+@app.route('/drinks/<id>', methods=['PATCH'])
+def update_drink(id):
+    body = request.get_json()
+
+    try:
+        selected_coffee = Drink.query.get(id)
+    except:
+        abort(404)
+
+    selected_coffee.title = body['title']
+    selected_coffee.recipe = body['recipe']
+    selected_coffee.update()
+
+    return jsonify({
+        "success": True,
+        "drinks": [selected_coffee]
+        }), 200
+
 
 
 '''
@@ -102,9 +154,17 @@ def unprocessable(error):
 @TODO implement error handler for 404
     error handler should conform to general task above 
 '''
-
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify(ERROR_DETAILS['404']), 404
 
 '''
 @TODO implement error handler for AuthError
     error handler should conform to general task above 
 '''
+
+class AuthError(Exception):
+    def __init__(self, error, status_code):
+        self.error = error
+        self.status_code = status_code
+
