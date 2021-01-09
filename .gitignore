@@ -3,5 +3,5 @@ env/*
 */*/__pycache__/*
 */*/*/__pycache__/*
 
-backend/src/database/*.db
+backend/src/database/database.db
 frontend/src/environments/*.ts
