@@ -3,10 +3,17 @@ from flask import Flask, request, jsonify, abort
 from sqlalchemy import exc
 import json
 from flask_cors import CORS
+from functools import wraps
 
 from .database.models import db_drop_and_create_all, setup_db, Drink
 from .auth.auth import AuthError, requires_auth
-from .errors import ERROR_DETAILS
+
+
+class APIException(Exception):
+    def __init__(self, error, status_code):
+        self.error = error
+        self.status_code = status_code
+
 
 app = Flask(__name__)
 setup_db(app)
@@ -33,13 +40,16 @@ def get_drinks():
     drinks = Drink.query.order_by('id').all()
 
     if len(drinks) == 0:
-        raise AuthError(ERROR_DETAILS['400'], 400)
+        raise APIException("Resource Not Found", 404)
 
-    drink_info = [drink.short() for drink in drinks]
-    return jsonify({
-        "success": True, 
-        "drinks": drink_info
-        }), 200
+    try:
+        drink_info = [drink.short() for drink in drinks]
+        return jsonify({
+            "success": True, 
+            "drinks": drink_info
+            }), 200
+    except:
+        raise APIException("Internal Error", 500)
 
 
 '''
@@ -51,8 +61,13 @@ def get_drinks():
         or appropriate status code indicating reason for failure
 '''
 @app.route('/drinks-detail')
-def get_drinks_details():
+@requires_auth('get:drinks-detail')
+def get_drinks_details(jwt):
     drinks = Drink.query.order_by('id').all()
+    
+    if len(drinks) == 0:
+        raise APIException("Resource Not Found", 404)
+
     drink_info = [drink.long() for drink in drinks]
     return jsonify({
         "success": True, 
@@ -70,19 +85,23 @@ def get_drinks_details():
         or appropriate status code indicating reason for failure
 '''
 @app.route('/drinks', methods=['POST'])
-def create_drink():
-    body = request.get_json()
-    new_drink = Drink(title=body['title'], recipe=body['recipe'])
-    new_drink.insert()
+@requires_auth('post:drinks')
+def add_drink(jwt):
+    try:
+        body = request.get_json()
+        new_drink = Drink(title=body['title'], recipe=body['recipe'])
+        new_drink.insert()
 
-    drinks = Drink.query.order_by('id').all()
-    drink_info = [drink.long() for drink in drinks]
+        drinks = Drink.query.order_by('id').all()
+        drink_info = [drink.long() for drink in drinks]
 
-    return jsonify({
-        "success": True, 
-        "drinks": drink_info
-        }), 200
+        return jsonify({
+            "success": True, 
+            "drinks": drink_info
+            }), 200
 
+    except:
+        raise APIException("Unprocessable", 422)
 
 '''
 @TODO implement endpoint
@@ -96,23 +115,26 @@ def create_drink():
         or appropriate status code indicating reason for failure
 '''
 @app.route('/drinks/<id>', methods=['PATCH'])
-def update_drink(id):
+@requires_auth('patch:drinks')
+def update_drink(id, jwt):
     body = request.get_json()
 
+    selected_coffee = Drink.query.get(id)
+    
+    if not selected_coffee:
+        raise APIException("Resource Not Found", 404)
+
     try:
-        selected_coffee = Drink.query.get(id)
+        selected_coffee.title = body['title']
+        selected_coffee.recipe = body['recipe']
+        selected_coffee.update()
+
+        return jsonify({
+            "success": True,
+            "drinks": [selected_coffee]
+            }), 200
     except:
-        abort(404)
-
-    selected_coffee.title = body['title']
-    selected_coffee.recipe = body['recipe']
-    selected_coffee.update()
-
-    return jsonify({
-        "success": True,
-        "drinks": [selected_coffee]
-        }), 200
-
+        raise APIException("Unprocessable", 422)
 
 
 '''
@@ -125,19 +147,31 @@ def update_drink(id):
     returns status code 200 and json {"success": True, "delete": id} where id is the id of the deleted record
         or appropriate status code indicating reason for failure
 '''
+@app.route('/drinks/<id>', methods=['DELETE'])
+@requires_auth('patch:drinks')
+def delete_drink(id, jwt):
+    body = request.get_json()
 
+    selected_coffee = Drink.query.get(id)
+
+    if not selected_coffee:
+        raise APIException("Resource Not Found", 404)
+    
+    try:
+        selected_coffee.delete()
+
+        return jsonify({
+            "success": True,
+            "delete": id
+            }), 200
+
+    except:
+        raise APIException("Unprocessable", 422)
 
 ## Error Handling
 '''
 Example error handling for unprocessable entity
 '''
-@app.errorhandler(422)
-def unprocessable(error):
-    return jsonify({
-                    "success": False, 
-                    "error": 422,
-                    "message": "unprocessable"
-                    }), 422
 
 '''
 @TODO implement error handlers using the @app.errorhandler(error) decorator
@@ -154,17 +188,10 @@ def unprocessable(error):
 @TODO implement error handler for 404
     error handler should conform to general task above 
 '''
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify(ERROR_DETAILS['404']), 404
-
-'''
-@TODO implement error handler for AuthError
-    error handler should conform to general task above 
-'''
-
-class AuthError(Exception):
-    def __init__(self, error, status_code):
-        self.error = error
-        self.status_code = status_code
-
+@app.errorhandler(APIException)
+def not_found(e):
+    return jsonify({
+                    "success": False, 
+                    "error": e.status_code,
+                    "message": e.error
+                    }), e.status_code
