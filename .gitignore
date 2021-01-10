@@ -6,4 +6,6 @@ env/*
 */*/*/__pycache__/*
 
 backend/src/database/database.db
+backend/udacity-fsnd-udaspicelatte.postman_collection.json
+frontend/node_modules/*
 frontend/src/environments/*.ts
