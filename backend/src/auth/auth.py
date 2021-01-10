@@ -84,7 +84,7 @@ def check_permissions(permission, payload):
         raise AuthError({
             'code': 'unauthorized',
             'description': 'Permission not found.'
-            }, 403)
+            }, 401)
 
     return True
 
@@ -153,7 +153,7 @@ def verify_decode_jwt(token):
     raise AuthError({
                 'code': 'invalid_header',
                 'description': 'Unable to find the appropriate key.'
-            }, 400)
+            }, 401)
 
 '''
 @TODO implement @requires_auth(permission) decorator method
