@@ -8,16 +8,15 @@ from functools import wraps
 from .database.models import db_drop_and_create_all, setup_db, Drink
 from .auth.auth import AuthError, requires_auth
 
+app = Flask(__name__)
+setup_db(app)
+CORS(app)
 
 class APIException(Exception):
     def __init__(self, error, status_code):
         self.error = error
         self.status_code = status_code
 
-
-app = Flask(__name__)
-setup_db(app)
-CORS(app)
 
 '''
 @TODO uncomment the following line to initialize the datbase
@@ -89,7 +88,14 @@ def get_drinks_details(jwt):
 def add_drink(jwt):
     try:
         body = request.get_json()
-        new_drink = Drink(title=body['title'], recipe=body['recipe'])
+
+        drinks = Drink.query.order_by('id').all()
+
+        try:
+            new_drink = Drink(title=body['title'], recipe=json.dumps(body['recipe']))
+        except:
+            raise APIException("Bad Request", 400)
+        
         new_drink.insert()
 
         drinks = Drink.query.order_by('id').all()
@@ -100,6 +106,8 @@ def add_drink(jwt):
             "drinks": drink_info
             }), 200
 
+    except APIException as e:
+        raise e
     except:
         raise APIException("Unprocessable", 422)
 
@@ -116,7 +124,7 @@ def add_drink(jwt):
 '''
 @app.route('/drinks/<id>', methods=['PATCH'])
 @requires_auth('patch:drinks')
-def update_drink(id, jwt):
+def update_drink(jwt, id):
     body = request.get_json()
 
     selected_coffee = Drink.query.get(id)
@@ -125,14 +133,19 @@ def update_drink(id, jwt):
         raise APIException("Resource Not Found", 404)
 
     try:
-        selected_coffee.title = body['title']
-        selected_coffee.recipe = body['recipe']
+        if 'title' in body:
+            selected_coffee.title = body['title']
+
+        if 'recipe' in body:
+            selected_coffee.recipe = body['recipe']
+
         selected_coffee.update()
 
         return jsonify({
             "success": True,
-            "drinks": [selected_coffee]
+            "drinks": [selected_coffee.long()]
             }), 200
+
     except:
         raise APIException("Unprocessable", 422)
 
@@ -148,16 +161,16 @@ def update_drink(id, jwt):
         or appropriate status code indicating reason for failure
 '''
 @app.route('/drinks/<id>', methods=['DELETE'])
-@requires_auth('patch:drinks')
-def delete_drink(id, jwt):
-    body = request.get_json()
-
-    selected_coffee = Drink.query.get(id)
-
-    if not selected_coffee:
-        raise APIException("Resource Not Found", 404)
-    
+@requires_auth('delete:drinks')
+def delete_drink(jwt, id):
     try:
+        body = request.get_json()
+
+        selected_coffee = Drink.query.get(id)
+
+        if not selected_coffee:
+            raise APIException("Resource Not Found", 404)
+        
         selected_coffee.delete()
 
         return jsonify({
@@ -165,6 +178,9 @@ def delete_drink(id, jwt):
             "delete": id
             }), 200
 
+    except APIException as e:
+        raise e
+    
     except:
         raise APIException("Unprocessable", 422)
 
@@ -189,9 +205,18 @@ Example error handling for unprocessable entity
     error handler should conform to general task above 
 '''
 @app.errorhandler(APIException)
-def not_found(e):
+def api_errors(e):
     return jsonify({
                     "success": False, 
                     "error": e.status_code,
                     "message": e.error
+                    }), e.status_code
+
+
+@app.errorhandler(AuthError)
+def auth_errors(e):
+    return jsonify({
+                    "success": False, 
+                    "error": e.status_code,
+                    "message": e.error.get('description', '')
                     }), e.status_code
